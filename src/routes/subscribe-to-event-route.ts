@@ -1,5 +1,6 @@
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { EmailAlreadyExists } from "../services/errors/email-already-exists";
 import { subscribeToEvent } from "../services/subscribe-to-event";
 
 export const subscribeToEventRoute: FastifyPluginAsyncZod = async (app) => {
@@ -7,30 +8,38 @@ export const subscribeToEventRoute: FastifyPluginAsyncZod = async (app) => {
     "/subscriptions",
     {
       schema: {
-        summary: "Subscribes someone to the event",
-        tags: ["subscription"],
+        summary: "Subscribe to event",
+        tags: ["subscriptions"],
+        operationId: "subscribeToEvent",
         body: z.object({
           name: z.string(),
           email: z.string().email(),
+          referrer: z.string().nullish(),
         }),
         response: {
-          201: z.object({
-            subscriberId: z.string(),
-          }),
+          201: z.object({ subscriberId: z.string() }),
+          409: z.object({ message: z.string() }),
         },
       },
     },
     async (request, reply) => {
-      const { name, email } = request.body;
+      const { name, email, referrer } = request.body;
 
-      const { subscriberId } = await subscribeToEvent({
-        name,
-        email,
-      });
+      try {
+        const { subscriberId } = await subscribeToEvent({
+          name,
+          email,
+          invitedBySubscriberId: referrer || null,
+        });
 
-      return reply.status(201).send({
-        subscriberId,
-      });
+        return reply.status(201).send({ subscriberId });
+      } catch (err: any) {
+        if (err instanceof EmailAlreadyExists) {
+          return reply.status(409).send({ message: err.message });
+        }
+
+        throw err;
+      }
     }
   );
 };
